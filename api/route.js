@@ -1,75 +1,70 @@
-# Truck Count Optimizer — deployment guide
+// Vercel serverless function: /api/route
+// Keeps the TomTom API key on the server. The phone app never sees it.
+// Set TOMTOM_API_KEY in your Vercel project's Environment Variables.
 
-This turns the calculator into a real phone app: your foreman opens a link once,
-adds it to his home screen, and from then on it opens full-screen with no browser
-bar — like any other app. Live drive times come from TomTom, looked up by a small
-serverless function so your API key never sits exposed in the app itself.
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Use POST" });
+    return;
+  }
 
-## If you already deployed and got the sw.js / raw-text bug
+  const key = process.env.TOMTOM_API_KEY;
+  if (!key) {
+    res.status(500).json({ error: "Server is missing TOMTOM_API_KEY. Add it in Vercel > Project > Settings > Environment Variables." });
+    return;
+  }
 
-Earlier versions of this package put the frontend files inside a `public/`
-folder. Vercel's zero-config static hosting (no framework detected) does
-**not** treat `public/` as the web root by default — only certain frameworks
-do that automatically. That mismatch caused the site to serve the wrong file.
+  const { origin, destination } = req.body || {};
+  if (!origin || !destination) {
+    res.status(400).json({ error: "Both origin and destination are required." });
+    return;
+  }
 
-Fix: in your GitHub repo, delete the `public/` folder and move `index.html`,
-`manifest.json`, `sw.js`, `icon-192.png`, and `icon-512.png` up to sit
-directly next to `api/` and `package.json` at the repo root — exactly like
-this package is now structured. Commit and push; Vercel will auto-redeploy
-and it'll resolve.
+  try {
+    const originPoint = await resolvePoint(origin, key);
+    const destPoint = await resolvePoint(destination, key);
 
-## What you need
+    const routeUrl = `https://api.tomtom.com/routing/1/calculateRoute/${originPoint.lat},${originPoint.lon}:${destPoint.lat},${destPoint.lon}/json?key=${key}&traffic=true&routeType=fastest`;
+    const routeResp = await fetch(routeUrl);
+    const routeData = await routeResp.json();
 
-- A TomTom API key (free tier is plenty for this use case)
-- A free Vercel account (or Netlify — steps are nearly identical)
-- 10–15 minutes
+    if (!routeResp.ok || !routeData.routes || !routeData.routes.length) {
+      throw new Error(routeData?.error?.description || "TomTom could not calculate a route between those points.");
+    }
 
-## Step 1 — Get a TomTom API key
+    const summary = routeData.routes[0].summary;
+    res.status(200).json({
+      originLabel: originPoint.label,
+      destLabel: destPoint.label,
+      distanceMiles: round1(summary.lengthInMeters / 1609.34),
+      durationMinutes: round1(summary.travelTimeInSeconds / 60),
+      trafficDelayMinutes: round1((summary.trafficDelayInSeconds || 0) / 60),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message || "Route lookup failed." });
+  }
+}
 
-1. Go to https://developer.tomtom.com and sign up (free)
-2. Create a new app/project in their dashboard
-3. Copy the API key it gives you — you'll paste it into Vercel in Step 3
+async function resolvePoint(text, key) {
+  const t = String(text).trim();
+  const coordMatch = t.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
+  if (coordMatch) {
+    return { lat: parseFloat(coordMatch[1]), lon: parseFloat(coordMatch[2]), label: t };
+  }
+  const geoUrl = `https://api.tomtom.com/search/2/geocode/${encodeURIComponent(t)}.json?key=${key}&limit=1&countrySet=US`;
+  const geoResp = await fetch(geoUrl);
+  const geoData = await geoResp.json();
+  if (!geoResp.ok || !geoData.results || !geoData.results.length) {
+    throw new Error(`Could not find a location for "${t}".`);
+  }
+  const best = geoData.results[0];
+  return {
+    lat: best.position.lat,
+    lon: best.position.lon,
+    label: best.address?.freeformAddress || t,
+  };
+}
 
-## Step 2 — Deploy to Vercel
-
-**Easiest path (no command line):**
-1. Create a free GitHub account if you don't have one, and create a new repository
-2. Upload this entire `paving-app` folder to that repository (drag-and-drop works on github.com)
-3. Go to https://vercel.com, sign up with your GitHub account
-4. Click "Add New Project," pick the repository you just created, click Deploy
-   - Leave all settings as default — Vercel auto-detects the `/api` function and `/public` folder
-
-**Command-line path (if you're comfortable with a terminal):**
-```
-npm install -g vercel
-cd paving-app
-vercel login
-vercel --prod
-```
-
-## Step 3 — Add your TomTom key
-
-1. In the Vercel dashboard, open your project
-2. Go to Settings → Environment Variables
-3. Add a variable named `TOMTOM_API_KEY` with the key from Step 1
-4. Redeploy (Vercel prompts you, or just push any small change to the repo)
-
-## Step 4 — Get it on the foreman's phone
-
-1. Vercel gives you a URL like `https://your-project-name.vercel.app`
-2. Send that link to your foreman (text, email, whatever)
-3. He opens it in Safari (iPhone) or Chrome (Android)
-4. **iPhone:** tap the Share icon → "Add to Home Screen"
-   **Android:** tap the ⋮ menu → "Add to Home screen" / "Install app"
-5. It now sits on his home screen as its own icon and opens full-screen, no browser bar
-
-## Notes
-
-- The API key never reaches the phone — the app calls your own `/api/route`
-  function, which calls TomTom server-side. Safe to hand the link to anyone.
-- If drive time lookups ever fail, the calculator itself still works fully —
-  he can just type haul-out/haul-return minutes in by hand.
-- Free tiers (Vercel + TomTom) comfortably cover a small crew using this a few
-  times a shift. If usage grows a lot, check TomTom's pricing for overage.
-- To update the app later (new default costs, tweaks, etc.), just edit the
-  files and redeploy the same way — no need to resend a new link.
+function round1(n) {
+  return Math.round(n * 10) / 10;
+}
