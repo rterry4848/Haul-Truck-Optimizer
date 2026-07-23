@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Truck Count Optimizer</title>
+<link rel="manifest" href="/manifest.json" />
+<meta name="theme-color" content="#1B1C1F" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Truck Optimizer" />
+<link rel="apple-touch-icon" href="/icon-192.png" />
+<link rel="icon" href="/icon-192.png" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1B1C1F; color: #E7E7E9; font-family: 'IBM Plex Sans', ui-sans-serif, system-ui; -webkit-tap-highlight-color: transparent; }
+  .disp { font-family: 'Oswald', sans-serif; letter-spacing: 0.02em; text-transform: uppercase; }
+  .mono { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  .card { background: #232427; border: 1px solid #313337; border-radius: 10px; }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 16px 16px 60px; }
+  header { border-bottom: 1px solid #313337; padding: 18px 16px; display: flex; align-items: center; gap: 10px; }
+  .bar { width: 8px; height: 26px; background: #F2662D; border-radius: 2px; }
+  h1 { font-size: 19px; font-weight: 700; margin: 0; color: #F5F5F6; }
+  .sub { font-size: 12px; color: #9CA0A8; margin-top: 2px; }
+  .section-title { font-size: 12px; color: #9CA0A8; margin: 18px 0 10px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11.5px; color: #9CA0A8; margin-bottom: 5px; }
+  input[type=number], input[type=text] {
+    width: 100%; background: #1B1C1F; border: 1px solid #3A3D42; color: #E7E7E9;
+    border-radius: 6px; padding: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 14px;
+  }
+  input:focus { outline: 2px solid #F2662D; outline-offset: 1px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid4 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  button.primary {
+    display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%;
+    background: #F2662D; color: #1B1C1F; border: none; border-radius: 8px; padding: 13px;
+    font-weight: 600; font-size: 14px; cursor: pointer; margin-top: 10px;
+  }
+  button.primary:disabled { background: #5a3420; color: #9CA0A8; }
+  .checkline { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9CA0A8; margin-top: 10px; }
+  .err { color: #F2662D; font-size: 12px; margin-top: 8px; white-space: pre-wrap; }
+  .ok { color: #7CD992; font-size: 12px; margin-top: 8px; }
+  .gauge { position: relative; height: 30px; background: #1B1C1F; border-radius: 6px; overflow: hidden; border: 1px solid #313337; margin-top: 8px; }
+  .gauge-fill { position: absolute; left: 0; top: 0; bottom: 0; transition: width 200ms; }
+  .gauge-mark { position: absolute; top: -3px; bottom: -3px; width: 3px; background: #F4C542; }
+  .gauge-label { position: absolute; inset: 0; display: flex; align-items: center; padding-left: 10px; font-size: 12px; }
+  .stat { padding: 12px; }
+  .stat-label { font-size: 10.5px; color: #9CA0A8; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat-value { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; color: #F5F5F6; margin-top: 4px; }
+  .stat-sub { font-size: 10.5px; color: #7A7E86; margin-top: 2px; }
+  .statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+  th { text-align: right; color: #7A7E86; font-weight: 500; padding: 0 6px 8px; white-space: nowrap; }
+  th:first-child, td:first-child { text-align: left; }
+  td { text-align: right; padding: 7px 6px; border-top: 1px solid #2E3034; white-space: nowrap; }
+  tr.optimal { background: rgba(242,102,45,0.12); }
+  tr.optimal td:first-child { box-shadow: inset 3px 0 0 #F2662D; font-weight: 600; color: #F2662D; }
+  .tablewrap { overflow-x: auto; }
+  .foot { font-size: 11px; color: #7A7E86; margin-top: 14px; line-height: 1.5; }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar"></div>
+  <div>
+    <h1>Truck Count Optimizer</h1>
+    <div class="sub">Paving crew production &amp; cost-per-ton vs. number of haul trucks</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- Haul route -->
+  <div class="card" style="padding:16px;">
+    <div class="section-title" style="margin-top:0;">Haul Route — Live Drive Time</div>
+    <div class="field">
+      <label>Plant / stockpile location</label>
+      <input type="text" id="plantLoc" placeholder="address, or lat, lon from a dropped pin" />
+    </div>
+    <div class="field">
+      <label>Paving site location</label>
+      <input type="text" id="siteLoc" placeholder="address, or lat, lon from a dropped pin" />
+    </div>
+    <label class="checkline"><input type="checkbox" id="separateReturn" /> Look up return leg separately</label>
+    <button class="primary" id="lookupBtn">Get drive time</button>
+    <div id="routeMsg"></div>
+
+    <div class="grid4" style="margin-top:14px;">
+      <div class="field"><label>Load time (min)</label><input type="number" id="loadMin" value="4" step="0.5" /></div>
+      <div class="field"><label>Dump time (min)</label><input type="number" id="dumpMin" value="3" step="0.5" /></div>
+      <div class="field"><label>Haul out (min)</label><input type="number" id="haulOut" value="16" step="0.5" /></div>
+      <div class="field"><label>Haul return (min)</label><input type="number" id="haulReturn" value="16" step="0.5" /></div>
+    </div>
+  </div>
+
+  <!-- Crew & plant -->
+  <div class="card" style="padding:16px; margin-top:14px;">
+    <div class="section-title" style="margin-top:0;">Crew, Plant &amp; Trucking</div>
+    <div class="grid2">
+      <div class="field"><label>Paver max rate (tons/hr)</label><input type="number" id="paverRate" value="180" /></div>
+      <div class="field"><label>Crew headcount</label><input type="number" id="crewSize" value="9" /></div>
+      <div class="field"><label>Crew + equipment cost ($/hr)</label><input type="number" id="crewCost" value="640" /></div>
+      <div class="field"><label>Shift length (hrs)</label><input type="number" id="shiftHours" value="10" step="0.5" /></div>
+      <div class="field"><label>Truck capacity (tons)</label><input type="number" id="truckCap" value="18" /></div>
+      <div class="field"><label>Truck cost ($/hr)</label><input type="number" id="truckCost" value="95" /></div>
+      <div class="field"><label>Utilization — percent</label><input type="number" id="utilPct" value="85" step="1" /></div>
+      <div class="field"><label>Utilization — min / hour</label><input type="number" id="utilMin" value="51" step="1" /></div>
+      <div class="field"><label>Material cost ($/ton, optional)</label><input type="number" id="matCost" value="0" /></div>
+      <div class="field"><label>Trucks to compare (min–max)</label>
+        <div style="display:flex; gap:6px;">
+          <input type="number" id="minTrucks" value="2" />
+          <input type="number" id="maxTrucks" value="10" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gauge -->
+  <div class="card" style="padding:16px; margin-top:14px;">
+    <div class="section-title" style="margin-top:0;" id="gaugeTitle">Supply vs. Demand</div>
+    <div class="gauge">
+      <div class="gauge-fill" id="gaugeFill"></div>
+      <div class="gauge-mark" id="gaugeMark"></div>
+      <div class="gauge-label mono" id="gaugeLabel"></div>
+    </div>
+    <div id="bottleneckMsg" style="font-size:11.5px; margin-top:6px;"></div>
+  </div>
+
+  <!-- Stats -->
+  <div class="statgrid">
+    <div class="card stat"><div class="stat-label">Optimal trucks</div><div class="stat-value" id="statTrucks">—</div><div class="stat-sub" id="statTrucksSub"></div></div>
+    <div class="card stat"><div class="stat-label">Best $ / ton</div><div class="stat-value" id="statCost">—</div><div class="stat-sub" id="statCostSub"></div></div>
+    <div class="card stat"><div class="stat-label">Tons / shift</div><div class="stat-value" id="statTons">—</div><div class="stat-sub" id="statTonsSub"></div></div>
+    <div class="card stat"><div class="stat-label">Total cost</div><div class="stat-value" id="statTotal">—</div><div class="stat-sub" id="statTotalSub"></div></div>
+  </div>
+
+  <!-- Table -->
+  <div class="card" style="padding:16px; margin-top:14px;">
+    <div class="section-title" style="margin-top:0;">Shift Breakdown by Truck Count</div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th>Trk</th><th>Man Hrs</th><th>Trk Hrs</th><th>Tons</th><th>T/Hr</th><th>T/ManHr</th><th>T/TrkHr</th><th>T/CrewHr</th><th>Cost</th><th>$/Ton</th>
+        </tr></thead>
+        <tbody id="tableBody" class="mono"></tbody>
+      </table>
+    </div>
+    <div class="foot">Cost per ton bottoms out where truck delivery capacity just meets the paver's max rate. Fewer trucks starve the paver; more trucks just queue and burn hours.</div>
+  </div>
+
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 0) => (isFinite(n) ? n : 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+const money = (n) => (isFinite(n) ? n : 0).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+
+function getInputs() {
+  return {
+    paverRate: +$('paverRate').value || 0,
+    truckCap: +$('truckCap').value || 0,
+    shiftHours: +$('shiftHours').value || 0,
+    crewSize: +$('crewSize').value || 0,
+    crewCost: +$('crewCost').value || 0,
+    truckCost: +$('truckCost').value || 0,
+    utilPct: +$('utilPct').value || 0,
+    matCost: +$('matCost').value || 0,
+    minTrucks: Math.max(1, +$('minTrucks').value || 1),
+    maxTrucks: +$('maxTrucks').value || 1,
+    loadMin: +$('loadMin').value || 0,
+    dumpMin: +$('dumpMin').value || 0,
+    haulOut: +$('haulOut').value || 0,
+    haulReturn: +$('haulReturn').value || 0,
+  };
+}
+
+function computeRows(inp) {
+  const cycleTime = inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn;
+  const k = cycleTime > 0 ? (inp.truckCap * 60) / cycleTime : 0;
+  const rows = [];
+  for (let n = inp.minTrucks; n <= inp.maxTrucks; n++) {
+    const utilFrac = inp.utilPct / 100;
+    const deliveryRate = n * k * utilFrac;
+    const effRate = Math.min(inp.paverRate, deliveryRate);
+    const tons = effRate * inp.shiftHours;
+    const manHours = inp.crewSize * inp.shiftHours;
+    const truckHours = n * inp.shiftHours;
+    const crewDollars = inp.crewCost * inp.shiftHours;
+    const truckDollars = inp.truckCost * inp.shiftHours * n;
+    const matDollars = inp.matCost * tons;
+    const totalCost = crewDollars + truckDollars + matDollars;
+    const costPerTon = tons > 0 ? totalCost / tons : 0;
+    const tonsPerTruckHour = truckHours > 0 ? tons / truckHours : 0;
+    const tonsPerCrewHour = inp.shiftHours > 0 ? tons / inp.shiftHours : 0;
+    const tonsPerManHour = manHours > 0 ? tons / manHours : 0;
+    const bottleneck = deliveryRate < inp.paverRate ? "trucks" : deliveryRate > inp.paverRate ? "paver" : "balanced";
+    rows.push({ n, deliveryRate, effRate, tons, manHours, truckHours, totalCost, costPerTon, tonsPerHour: effRate, tonsPerTruckHour, tonsPerCrewHour, tonsPerManHour, bottleneck });
+  }
+  return rows;
+}
+
+let lastHoverN = null;
+
+function render() {
+  const inp = getInputs();
+  const rows = computeRows(inp);
+  if (!rows.length) return;
+  const optimal = rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]);
+  const focus = rows.find((r) => r.n === lastHoverN) || optimal;
+  const exactNeeded = ((inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn) > 0 && inp.truckCap > 0)
+    ? inp.paverRate / ((inp.truckCap * 60) / (inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn)) : 0;
+
+  // gauge
+  const gaugeMax = Math.max(inp.paverRate, ...rows.map(r => r.deliveryRate)) * 1.1 || 1;
+  const pPct = Math.min(100, (inp.paverRate / gaugeMax) * 100);
+  const dPct = Math.min(100, (focus.deliveryRate / gaugeMax) * 100);
+  $('gaugeFill').style.width = dPct + '%';
+  $('gaugeFill').style.background = focus.deliveryRate < inp.paverRate ? '#8A3D22' : '#3d5a3f';
+  $('gaugeMark').style.left = pPct + '%';
+  $('gaugeLabel').textContent = `truck delivery (after utilization): ${fmt(focus.deliveryRate)} tons/hr (paver: ${fmt(inp.paverRate)})`;
+  $('gaugeTitle').textContent = `Supply vs. Demand — ${focus.n} truck${focus.n === 1 ? '' : 's'}`;
+  const bmsg = $('bottleneckMsg');
+  if (focus.bottleneck === 'trucks') { bmsg.textContent = 'TRUCKS ARE THE LIMIT — paver is waiting'; bmsg.style.color = '#F2662D'; }
+  else if (focus.bottleneck === 'paver') { bmsg.textContent = 'PAVER IS THE LIMIT — trucks are queuing'; bmsg.style.color = '#F4C542'; }
+  else { bmsg.textContent = 'BALANCED'; bmsg.style.color = '#7CD992'; }
+
+  // stats
+  $('statTrucks').textContent = optimal.n;
+  $('statTrucksSub').textContent = `exact need: ${fmt(exactNeeded, 1)}`;
+  $('statCost').textContent = money(optimal.costPerTon);
+  $('statCostSub').textContent = `at ${optimal.n} trucks`;
+  $('statTons').textContent = fmt(optimal.tons);
+  $('statTonsSub').textContent = `${fmt(optimal.tonsPerHour, 1)} tons/hr`;
+  $('statTotal').textContent = money(optimal.totalCost);
+  $('statTotalSub').textContent = `${inp.shiftHours} hr shift`;
+
+  // table
+  const tbody = $('tableBody');
+  tbody.innerHTML = '';
+  rows.forEach((r) => {
+    const tr = document.createElement('tr');
+    if (r.n === optimal.n) tr.className = 'optimal';
+    tr.onmouseenter = () => { lastHoverN = r.n; render(); };
+    tr.onclick = () => { lastHoverN = r.n; render(); };
+    tr.innerHTML = `<td>${r.n}${r.n === optimal.n ? ' ★' : ''}</td><td>${fmt(r.manHours)}</td><td>${fmt(r.truckHours)}</td><td>${fmt(r.tons)}</td><td>${fmt(r.tonsPerHour,1)}</td><td>${fmt(r.tonsPerManHour,2)}</td><td>${fmt(r.tonsPerTruckHour,2)}</td><td>${fmt(r.tonsPerCrewHour,1)}</td><td>${money(r.totalCost)}</td><td>${money(r.costPerTon)}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','utilPct'].forEach((id) => {
+  $(id).addEventListener('input', render);
+});
+
+// Keep utilization percent and minutes/hour synced both ways
+$('utilPct').addEventListener('input', () => {
+  const pct = Math.max(0, Math.min(100, +$('utilPct').value || 0));
+  $('utilMin').value = Math.round(pct * 0.6 * 10) / 10;
+});
+$('utilMin').addEventListener('input', () => {
+  const min = Math.max(0, Math.min(60, +$('utilMin').value || 0));
+  $('utilPct').value = Math.round((min / 60) * 100 * 10) / 10;
+  render();
+});
+
+// Route lookup
+async function lookupLeg(origin, destination) {
+  const resp = await fetch('/api/route', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ origin, destination }),
+  });
+  const data = await resp.json();
+  if (!resp.ok) throw new Error(data.error || `Lookup failed (${resp.status})`);
+  return data;
+}
+
+$('lookupBtn').addEventListener('click', async () => {
+  const plant = $('plantLoc').value.trim();
+  const site = $('siteLoc').value.trim();
+  const msg = $('routeMsg');
+  msg.innerHTML = '';
+  if (!plant || !site) {
+    msg.innerHTML = '<div class="err">Enter both a plant location and a paving site location.</div>';
+    return;
+  }
+  const btn = $('lookupBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin">↻</span> Looking up…';
+  try {
+    const out = await lookupLeg(plant, site);
+    let ret = out;
+    if ($('separateReturn').checked) {
+      ret = await lookupLeg(site, plant);
+    }
+    $('haulOut').value = out.durationMinutes;
+    $('haulReturn').value = ret.durationMinutes;
+    msg.innerHTML = `<div class="ok">${fmt(out.distanceMiles,1)} mi one-way · ${out.originLabel} → ${out.destLabel} · live traffic</div>`;
+    render();
+  } catch (e) {
+    msg.innerHTML = `<div class="err">${(e.message || 'Route lookup failed.').replace(/</g,'&lt;')}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Get drive time';
+  }
+});
+
+render();
+
+// Register service worker for installability
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
