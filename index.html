@@ -273,7 +273,16 @@ async function lookupLeg(origin, destination) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ origin, destination }),
   });
-  const data = await resp.json();
+  let data;
+  try {
+    data = await resp.json();
+  } catch (e) {
+    throw new Error(
+      resp.ok
+        ? 'Server sent back an unreadable response. Try again.'
+        : `Lookup timed out or failed (status ${resp.status}). This can happen on a weak connection — try again, move to better signal, or type the drive time in by hand.`
+    );
+  }
   if (!resp.ok) throw new Error(data.error || `Lookup failed (${resp.status})`);
   return data;
 }
