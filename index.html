@@ -58,6 +58,7 @@
   td { text-align: right; padding: 6px 4px; border-top: 1px solid #2E3034; white-space: nowrap; }
   tr.optimal { background: rgba(242,102,45,0.12); }
   tr.optimal td:first-child { box-shadow: inset 3px 0 0 #F2662D; font-weight: 600; color: #F2662D; }
+  tfoot td { font-weight: 600; border-top: 2px solid #3A3D42; padding-top: 9px; color: #F5F5F6; }
   .tablewrap { overflow-x: auto; position: relative; -webkit-overflow-scrolling: touch; }
   .tablewrap.scrollable::after {
     content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 22px; pointer-events: none;
@@ -68,6 +69,28 @@
   .foot { font-size: 11px; color: #7A7E86; margin-top: 14px; line-height: 1.5; }
   .spin { animation: spin 1s linear infinite; display: inline-block; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  .print-report { display: none; }
+  @media print {
+    header, .wrap { display: none !important; }
+    .print-report {
+      display: block !important; background: #fff; color: #111; padding: 0;
+      font-family: 'IBM Plex Sans', ui-sans-serif, system-ui;
+    }
+    .print-report * { color: #111 !important; }
+    .print-report h1 { font-size: 18px; margin: 0 0 2px; }
+    .print-report .meta { font-size: 11px; color: #444 !important; margin-bottom: 14px; }
+    .print-report h2 { font-size: 13px; margin: 18px 0 6px; border-bottom: 1px solid #999; padding-bottom: 3px; }
+    .print-report table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 10.5px; }
+    .print-report th, .print-report td { border: 1px solid #bbb; padding: 4px 6px; text-align: right; }
+    .print-report th:first-child, .print-report td:first-child { text-align: left; }
+    .print-report th { color: #444 !important; font-weight: 600; }
+    .print-report .kv { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px 16px; font-size: 11px; }
+    .print-report .kv div span { color: #555 !important; }
+    .print-report tfoot td { font-weight: 700; border-top: 2px solid #333; }
+    .print-report table { page-break-inside: auto; }
+    .print-report tr { page-break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -80,6 +103,18 @@
 </header>
 
 <div class="wrap">
+
+  <!-- Job Data -->
+  <div class="card" style="padding:16px;">
+    <div class="section-title" style="margin-top:0;">Job Data</div>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="primary" id="exportReportBtn" type="button">Export Report (PDF)</button>
+      <button class="primary" id="saveJobBtn" type="button" style="background:#2E3336; color:#E7E7E9;">Save Job Data</button>
+      <button class="primary" id="loadJobBtn" type="button" style="background:#2E3336; color:#E7E7E9;">Load Job Data</button>
+      <input type="file" id="loadJobFile" accept="application/json" style="display:none;" />
+    </div>
+    <div id="jobDataMsg" style="font-size:11px; margin-top:8px;"></div>
+  </div>
 
   <!-- Haul route -->
   <div class="card" style="padding:16px;">
@@ -203,7 +238,27 @@
     <div class="foot">Wave 1's shared start time is timed backward from "Paving start time" — load time plus haul-out — so the first load lands exactly when you want paving to begin. Each later wave starts once the plant limit clears (max stacked × load time). All trucks in the same wave show that one shared "Start" time, but under the hood only one truck can be under the silo at once — each truck's actual loading is staggered by load time within its wave, and that real load moment is what drives its planned finish, loads, and hours. Nobody is paid for the flat shift length, only for cycles actually completed.</div>
   </div>
 
+  <!-- Actual Truck Performance -->
+  <div class="card" style="padding:16px; margin-top:14px;">
+    <div class="section-title" style="margin-top:0;">Actual Truck Performance</div>
+    <div style="font-size:11px; color:#7A7E86; margin-bottom:12px;">Log what each truck actually did — pre-filled from the plan above, editable. Enter actual scale tons per truck instead of relying on a flat tons-per-load estimate. Δ $/Ton compares that truck's actual efficiency to the job's optimum $/ton.</div>
+
+    <div class="tablewrap" id="actualsWrap">
+      <table>
+        <thead><tr>
+          <th>Truck</th><th>Start</th><th>Finish</th><th>Loads</th><th>Tons</th><th>Hrs</th><th>Cost</th><th>$/Ton</th><th>Δ $/Ton</th>
+        </tr></thead>
+        <tbody id="actualsBody" class="mono"></tbody>
+        <tfoot id="actualsFoot" class="mono"></tfoot>
+      </table>
+    </div>
+    <div class="scroll-hint" id="actualsScrollHint">← swipe to see more columns →</div>
+    <button class="primary" id="resetActualsBtn" type="button" style="background:#2E3336; color:#E7E7E9; margin-top:12px;">Reset to plan</button>
+  </div>
+
 </div>
+
+<div id="printReport" class="print-report"></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -313,6 +368,13 @@ function minutesToClock(mins) {
   return dayShift > 0 ? `${label} (+${dayShift}d)` : dayShift < 0 ? `${label} (${dayShift}d)` : label;
 }
 
+function minutesToTimeInputValue(mins) {
+  let m = ((Math.round(mins) % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
 function computeSchedule(inp) {
   const cycleTime = inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn;
   const utilFrac = inp.utilPct / 100;
@@ -396,7 +458,8 @@ function render() {
   });
 
   drawChart(rows, optimal);
-  renderSchedule(inp, optimal);
+  const schedule = renderSchedule(inp, optimal);
+  renderActuals(inp, schedule, optimal);
 }
 
 function renderSchedule(inp, optimal) {
@@ -437,6 +500,162 @@ function renderSchedule(inp, optimal) {
     tr.insertAdjacentHTML('beforeend', `<td>${minutesToClock(t.waveStart)}</td><td>${minutesToClock(t.lastDump)}</td><td>${t.loads}</td><td>${t.hoursRounded.toFixed(2)}</td><td>$${fmt(t.cost)}</td>`);
     tbody.appendChild(tr);
   });
+
+  return trucks;
+}
+
+// --- Actual Truck Performance ---
+
+let actuals = {}; // truck# -> { start: 'HH:MM', finish: 'HH:MM', loads: number }, user overrides persist across renders
+
+function getActualEntry(truckNum, planned) {
+  if (!actuals[truckNum]) {
+    actuals[truckNum] = {
+      start: minutesToTimeInputValue(planned.waveStart),
+      finish: minutesToTimeInputValue(planned.lastDump),
+      loads: planned.loads,
+      tons: planned.tons, // starting estimate (loads × planned capacity) — meant to be overwritten with real scale tons
+    };
+  }
+  return actuals[truckNum];
+}
+
+function computeActualRow(entry, inp) {
+  let startMin = parseTimeToMinutes(entry.start);
+  let finishMin = parseTimeToMinutes(entry.finish);
+  if (finishMin < startMin) finishMin += 1440; // crossed midnight
+  const hours = Math.max(0, (finishMin - startMin) / 60);
+  const loads = Math.max(0, Math.round(+entry.loads || 0));
+  const tons = Math.max(0, +entry.tons || 0); // actual scale tons, entered directly — not derived from a flat tons-per-load guess
+  const cost = hours * inp.truckCost;
+  const costPerTon = tons > 0 ? cost / tons : 0;
+  return { hours, loads, tons, cost, costPerTon };
+}
+
+function renderActuals(inp, schedule, optimal) {
+  const tbody = $('actualsBody');
+  const tfoot = $('actualsFoot');
+  tbody.innerHTML = '';
+  tfoot.innerHTML = '';
+
+  const optimumCostPerTon = optimal ? optimal.costPerTon : 0;
+  let totalLoads = 0, totalTons = 0, totalCost = 0;
+
+  schedule.forEach((planned) => {
+    const entry = getActualEntry(planned.truck, planned);
+    const calc = computeActualRow(entry, inp);
+    totalLoads += calc.loads;
+    totalTons += calc.tons;
+    totalCost += calc.cost;
+
+    const delta = calc.tons > 0 ? calc.costPerTon - optimumCostPerTon : 0;
+    const deltaColor = calc.tons === 0 ? '#7A7E86' : delta > 0.005 ? '#F2662D' : delta < -0.005 ? '#7CD992' : '#9CA0A8';
+    const deltaLabel = calc.tons === 0 ? '—' : `${delta >= 0 ? '+' : '−'}$${Math.abs(delta).toFixed(2)}`;
+
+    const tr = document.createElement('tr');
+    tr.dataset.truck = planned.truck;
+
+    const nameCell = document.createElement('td');
+    const nameSpan = document.createElement('div');
+    nameSpan.className = 'mono';
+    nameSpan.style.cssText = 'font-size:11px; color:#9CA0A8; white-space:nowrap;';
+    nameSpan.textContent = truckLabels[planned.truck] || `Truck ${planned.truck}`;
+    nameCell.appendChild(nameSpan);
+    tr.appendChild(nameCell);
+
+    const startCell = document.createElement('td');
+    const startInput = document.createElement('input');
+    startInput.type = 'time';
+    startInput.value = entry.start;
+    startInput.style.cssText = 'width:118px; background:#1B1C1F; border:1px solid #3A3D42; color:#E7E7E9; border-radius:5px; padding:4px 3px; font-family:inherit; font-size:11px; color-scheme:dark;';
+    startInput.addEventListener('input', (e) => { entry.start = e.target.value; updateActualsRow(planned, entry, inp, optimumCostPerTon); updateActualsTotals(inp, schedule, optimumCostPerTon); });
+    startCell.appendChild(startInput);
+    tr.appendChild(startCell);
+
+    const finishCell = document.createElement('td');
+    const finishInput = document.createElement('input');
+    finishInput.type = 'time';
+    finishInput.value = entry.finish;
+    finishInput.style.cssText = startInput.style.cssText;
+    finishInput.addEventListener('input', (e) => { entry.finish = e.target.value; updateActualsRow(planned, entry, inp, optimumCostPerTon); updateActualsTotals(inp, schedule, optimumCostPerTon); });
+    finishCell.appendChild(finishInput);
+    tr.appendChild(finishCell);
+
+    const loadsCell = document.createElement('td');
+    const loadsInput = document.createElement('input');
+    loadsInput.type = 'number';
+    loadsInput.value = entry.loads;
+    loadsInput.style.cssText = 'width:46px; background:#1B1C1F; border:1px solid #3A3D42; color:#E7E7E9; border-radius:5px; padding:4px; font-family:inherit; font-size:11px; text-align:right;';
+    loadsInput.addEventListener('input', (e) => { entry.loads = e.target.value; updateActualsRow(planned, entry, inp, optimumCostPerTon); updateActualsTotals(inp, schedule, optimumCostPerTon); });
+    loadsCell.appendChild(loadsInput);
+    tr.appendChild(loadsCell);
+
+    const tonsCell = document.createElement('td');
+    const tonsInput = document.createElement('input');
+    tonsInput.type = 'number';
+    tonsInput.step = '0.1';
+    tonsInput.value = entry.tons;
+    tonsInput.style.cssText = 'width:56px; background:#1B1C1F; border:1px solid #3A3D42; color:#E7E7E9; border-radius:5px; padding:4px; font-family:inherit; font-size:11px; text-align:right;';
+    tonsInput.addEventListener('input', (e) => { entry.tons = e.target.value; updateActualsRow(planned, entry, inp, optimumCostPerTon); updateActualsTotals(inp, schedule, optimumCostPerTon); });
+    tonsCell.appendChild(tonsInput);
+    tr.appendChild(tonsCell);
+
+    tr.insertAdjacentHTML('beforeend', `
+      <td data-field="hours">${calc.hours.toFixed(2)}</td>
+      <td data-field="cost">$${fmt(calc.cost)}</td>
+      <td data-field="cpt">${calc.tons > 0 ? '$' + calc.costPerTon.toFixed(2) : '—'}</td>
+      <td data-field="delta" style="color:${deltaColor};">${deltaLabel}</td>
+    `);
+    tbody.appendChild(tr);
+  });
+
+  updateActualsTotals(inp, schedule, optimumCostPerTon);
+}
+
+function updateActualsRow(planned, entry, inp, optimumCostPerTon) {
+  const tr = document.querySelector(`#actualsBody tr[data-truck="${planned.truck}"]`);
+  if (!tr) return;
+  const calc = computeActualRow(entry, inp);
+  const delta = calc.tons > 0 ? calc.costPerTon - optimumCostPerTon : 0;
+  const deltaColor = calc.tons === 0 ? '#7A7E86' : delta > 0.005 ? '#F2662D' : delta < -0.005 ? '#7CD992' : '#9CA0A8';
+  const deltaLabel = calc.tons === 0 ? '—' : `${delta >= 0 ? '+' : '−'}$${Math.abs(delta).toFixed(2)}`;
+  tr.querySelector('[data-field="hours"]').textContent = calc.hours.toFixed(2);
+  tr.querySelector('[data-field="cost"]').textContent = `$${fmt(calc.cost)}`;
+  tr.querySelector('[data-field="cpt"]').textContent = calc.tons > 0 ? '$' + calc.costPerTon.toFixed(2) : '—';
+  const deltaCell = tr.querySelector('[data-field="delta"]');
+  deltaCell.textContent = deltaLabel;
+  deltaCell.style.color = deltaColor;
+}
+
+function updateActualsTotals(inp, schedule, optimumCostPerTon) {
+  let totalLoads = 0, totalTons = 0, totalCost = 0;
+  schedule.forEach((planned) => {
+    const entry = getActualEntry(planned.truck, planned);
+    const calc = computeActualRow(entry, inp);
+    totalLoads += calc.loads;
+    totalTons += calc.tons;
+    totalCost += calc.cost;
+  });
+  const blendedCostPerTon = totalTons > 0 ? totalCost / totalTons : 0;
+  const optimumCostForSameTons = totalTons * optimumCostPerTon;
+  const totalDelta = totalCost - optimumCostForSameTons;
+  const deltaColor = totalTons === 0 ? '#7A7E86' : totalDelta > 0.5 ? '#F2662D' : totalDelta < -0.5 ? '#7CD992' : '#9CA0A8';
+  const deltaLabel = totalTons === 0 ? '—' : `${totalDelta >= 0 ? '+' : '−'}$${fmt(Math.abs(totalDelta), 2)}`;
+
+  const tfoot = $('actualsFoot');
+  tfoot.innerHTML = `
+    <tr>
+      <td>Total</td>
+      <td></td>
+      <td></td>
+      <td>${fmt(totalLoads)}</td>
+      <td></td>
+      <td>${fmt(totalTons)}</td>
+      <td>$${fmt(totalCost, 2)}</td>
+      <td>${totalTons > 0 ? '$' + blendedCostPerTon.toFixed(2) : '—'}</td>
+      <td style="color:${deltaColor};">${deltaLabel}</td>
+    </tr>
+  `;
 }
 
 function drawChart(rows, optimal) {
@@ -499,6 +718,11 @@ $('syncTrucksBtn').addEventListener('click', () => {
   if (!rows.length) return;
   const optimal = rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]);
   $('scheduleTrucks').value = optimal.n;
+  render();
+});
+
+$('resetActualsBtn').addEventListener('click', () => {
+  actuals = {};
   render();
 });
 
@@ -567,7 +791,7 @@ $('lookupBtn').addEventListener('click', async () => {
 render();
 
 function updateScrollHints() {
-  [['breakdownWrap', 'breakdownScrollHint'], ['scheduleWrap', 'scheduleScrollHint']].forEach(([wrapId, hintId]) => {
+  [['breakdownWrap', 'breakdownScrollHint'], ['scheduleWrap', 'scheduleScrollHint'], ['actualsWrap', 'actualsScrollHint']].forEach(([wrapId, hintId]) => {
     const wrap = $(wrapId);
     const hint = $(hintId);
     if (!wrap || !hint) return;
@@ -583,6 +807,157 @@ render = function () {
   _render();
   setTimeout(updateScrollHints, 0);
 };
+
+// --- Job Data: Save / Load / Export Report ---
+
+const JOB_INPUT_IDS = ['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','utilPct','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','prodStart','scheduleTrucks','maxStack'];
+
+function buildJobData() {
+  const inputs = {};
+  JOB_INPUT_IDS.forEach((id) => { inputs[id] = $(id).value; });
+  return {
+    version: 1,
+    savedAt: new Date().toISOString(),
+    inputs,
+    locations: {
+      plantLoc: $('plantLoc').value,
+      siteLoc: $('siteLoc').value,
+      plantSelect: $('plantSelect').value,
+    },
+    truckLabels: { ...truckLabels },
+    actuals: { ...actuals },
+  };
+}
+
+function showJobDataMsg(text, ok) {
+  const el = $('jobDataMsg');
+  el.textContent = text;
+  el.style.color = ok ? '#7CD992' : '#F2662D';
+}
+
+$('saveJobBtn').addEventListener('click', () => {
+  try {
+    const data = buildJobData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `paving-job-${dateStr}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showJobDataMsg('Saved.', true);
+  } catch (e) {
+    showJobDataMsg('Save failed: ' + (e.message || 'unknown error'), false);
+  }
+});
+
+$('loadJobBtn').addEventListener('click', () => { $('loadJobFile').click(); });
+
+$('loadJobFile').addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      JOB_INPUT_IDS.forEach((id) => {
+        if (data.inputs && data.inputs[id] !== undefined && $(id)) {
+          $(id).value = data.inputs[id];
+        }
+      });
+      // utilPct changed programmatically — resync the linked min/hour field
+      const pct = Math.max(0, Math.min(100, +$('utilPct').value || 0));
+      $('utilMin').value = Math.round(pct * 0.6 * 10) / 10;
+
+      if (data.locations) {
+        if (data.locations.plantLoc !== undefined) $('plantLoc').value = data.locations.plantLoc;
+        if (data.locations.siteLoc !== undefined) $('siteLoc').value = data.locations.siteLoc;
+        if (data.locations.plantSelect !== undefined) $('plantSelect').value = data.locations.plantSelect;
+      }
+      truckLabels = data.truckLabels || {};
+      actuals = data.actuals || {};
+      render();
+      showJobDataMsg(`Loaded ${file.name}.`, true);
+    } catch (err) {
+      showJobDataMsg('Could not read that file — is it a job data JSON saved from this tool?', false);
+    } finally {
+      $('loadJobFile').value = '';
+    }
+  };
+  reader.readAsText(file);
+});
+
+function buildPrintReport() {
+  const inp = getInputs();
+  const rows = computeRows(inp);
+  const optimal = rows.length ? rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]) : null;
+  const schedule = computeSchedule(inp);
+  const optimumCostPerTon = optimal ? optimal.costPerTon : 0;
+
+  let actualTotalTons = 0, actualTotalCost = 0, actualTotalLoads = 0;
+  const actualRowsHtml = schedule.map((planned) => {
+    const entry = getActualEntry(planned.truck, planned);
+    const calc = computeActualRow(entry, inp);
+    actualTotalTons += calc.tons;
+    actualTotalCost += calc.cost;
+    actualTotalLoads += calc.loads;
+    const delta = calc.tons > 0 ? calc.costPerTon - optimumCostPerTon : 0;
+    const deltaLabel = calc.tons === 0 ? '—' : `${delta >= 0 ? '+' : '−'}$${Math.abs(delta).toFixed(2)}`;
+    const name = truckLabels[planned.truck] || `Truck ${planned.truck}`;
+    return `<tr><td>${name}</td><td>${entry.start}</td><td>${entry.finish}</td><td>${calc.loads}</td><td>${fmt(calc.tons,1)}</td><td>${calc.hours.toFixed(2)}</td><td>$${fmt(calc.cost)}</td><td>${calc.tons>0?'$'+calc.costPerTon.toFixed(2):'—'}</td><td>${deltaLabel}</td></tr>`;
+  }).join('');
+  const blendedCostPerTon = actualTotalTons > 0 ? actualTotalCost / actualTotalTons : 0;
+  const totalDelta = actualTotalCost - (actualTotalTons * optimumCostPerTon);
+
+  const scheduleRowsHtml = schedule.map((t) => {
+    const name = truckLabels[t.truck] || `Truck ${t.truck}`;
+    return `<tr><td>${name}</td><td>${minutesToClock(t.waveStart)}</td><td>${minutesToClock(t.lastDump)}</td><td>${t.loads}</td><td>${t.hoursRounded.toFixed(2)}</td><td>$${fmt(t.cost)}</td></tr>`;
+  }).join('');
+
+  const now = new Date();
+  const html = `
+    <h1>Paving Truck Optimizer — Job Report</h1>
+    <div class="meta">Generated ${now.toLocaleString()} &nbsp;·&nbsp; Plant: ${$('plantLoc').value || '—'} &nbsp;·&nbsp; Site: ${$('siteLoc').value || '—'}</div>
+
+    <h2>Job Inputs</h2>
+    <div class="kv">
+      <div><span>Paver max rate:</span> ${fmt(inp.paverRate)} tons/hr</div>
+      <div><span>Crew headcount:</span> ${inp.crewSize}</div>
+      <div><span>Crew + equipment cost:</span> $${fmt(inp.crewCost)}/hr</div>
+      <div><span>Shift length:</span> ${inp.shiftHours} hrs</div>
+      <div><span>Truck capacity:</span> ${inp.truckCap} tons</div>
+      <div><span>Truck cost:</span> $${fmt(inp.truckCost)}/hr</div>
+      <div><span>Utilization:</span> ${fmt(inp.utilPct,1)}% (${fmt(inp.utilPct*0.6,0)} min/hr)</div>
+      <div><span>Cycle time:</span> ${inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn} min (load ${inp.loadMin} + haul out ${inp.haulOut} + dump ${inp.dumpMin} + haul return ${inp.haulReturn})</div>
+      <div><span>Paving start time:</span> ${inp.prodStart}</div>
+      <div><span>Optimal trucks:</span> ${optimal ? optimal.n : '—'}</div>
+      <div><span>Best $/ton (optimum):</span> ${optimal ? '$'+optimal.costPerTon.toFixed(2) : '—'}</div>
+      <div><span>Max trucks stacked at plant:</span> ${inp.maxStack}</div>
+    </div>
+
+    <h2>Plant-Queue Schedule</h2>
+    <table>
+      <thead><tr><th>Truck</th><th>Start</th><th>Planned Finish</th><th>Loads</th><th>Hours</th><th>Cost</th></tr></thead>
+      <tbody>${scheduleRowsHtml}</tbody>
+    </table>
+
+    <h2>Actual Truck Performance</h2>
+    <table>
+      <thead><tr><th>Truck</th><th>Start</th><th>Finish</th><th>Loads</th><th>Tons</th><th>Hrs</th><th>Cost</th><th>$/Ton</th><th>Δ $/Ton</th></tr></thead>
+      <tbody>${actualRowsHtml}</tbody>
+      <tfoot><tr><td>Total</td><td></td><td></td><td>${fmt(actualTotalLoads)}</td><td>${fmt(actualTotalTons,1)}</td><td></td><td>$${fmt(actualTotalCost)}</td><td>${actualTotalTons>0?'$'+blendedCostPerTon.toFixed(2):'—'}</td><td>${actualTotalTons>0?(totalDelta>=0?'+':'−')+'$'+fmt(Math.abs(totalDelta)):'—'}</td></tr></tfoot>
+    </table>
+  `;
+  $('printReport').innerHTML = html;
+}
+
+$('exportReportBtn').addEventListener('click', () => {
+  buildPrintReport();
+  setTimeout(() => window.print(), 50);
+});
 
 // Register service worker for installability
 if ('serviceWorker' in navigator) {
