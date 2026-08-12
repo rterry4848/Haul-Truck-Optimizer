@@ -113,7 +113,7 @@
       <div class="field"><label>Trucks to compare (min–max)</label>
         <div style="display:flex; gap:6px;">
           <input type="number" id="minTrucks" value="2" />
-          <input type="number" id="maxTrucks" value="10" />
+          <input type="number" id="maxTrucks" value="25" />
         </div>
       </div>
     </div>
@@ -133,6 +133,7 @@
   <!-- Stats -->
   <div class="statgrid">
     <div class="card stat"><div class="stat-label">Optimal trucks</div><div class="stat-value" id="statTrucks">—</div><div class="stat-sub" id="statTrucksSub"></div></div>
+    <div class="card stat"><div class="stat-label">Loads / truck</div><div class="stat-value" id="statLoads">—</div><div class="stat-sub">per truck, per shift</div></div>
     <div class="card stat"><div class="stat-label">Best $ / ton</div><div class="stat-value" id="statCost">—</div><div class="stat-sub" id="statCostSub"></div></div>
     <div class="card stat"><div class="stat-label">Tons / shift</div><div class="stat-value" id="statTons">—</div><div class="stat-sub" id="statTonsSub"></div></div>
     <div class="card stat"><div class="stat-label">Total cost</div><div class="stat-value" id="statTotal">—</div><div class="stat-sub" id="statTotalSub"></div></div>
@@ -149,7 +150,7 @@
         <tbody id="tableBody" class="mono"></tbody>
       </table>
     </div>
-    <div class="foot">Cost per ton bottoms out where truck delivery capacity just meets the paver's max rate. Fewer trucks starve the paver; more trucks just queue and burn hours.</div>
+    <div class="foot">Cost per ton bottoms out where truck delivery capacity just meets the paver's max rate. Fewer trucks starve the paver; more trucks just queue and burn hours. Each truck is only credited for full completed cycles in the shift — a truck that starts a load but can't finish it before the shift ends gets no partial credit, so tons/shift can step rather than climb smoothly as trucks are added.</div>
   </div>
 
 </div>
@@ -180,13 +181,18 @@ function getInputs() {
 
 function computeRows(inp) {
   const cycleTime = inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn;
-  const k = cycleTime > 0 ? (inp.truckCap * 60) / cycleTime : 0;
+  const utilFrac = inp.utilPct / 100;
+  // Productive hauling minutes available to ONE truck across the whole shift,
+  // after backing out the utilization loss (queuing, breaks, minor delays).
+  const effectiveMinutes = inp.shiftHours * 60 * utilFrac;
+  // A truck only gets credit for cycles it actually completes — no fractional loads.
+  const loadsPerTruck = cycleTime > 0 ? Math.floor(effectiveMinutes / cycleTime) : 0;
+  const paverMaxTons = inp.paverRate * inp.shiftHours;
   const rows = [];
   for (let n = inp.minTrucks; n <= inp.maxTrucks; n++) {
-    const utilFrac = inp.utilPct / 100;
-    const deliveryRate = n * k * utilFrac;
-    const effRate = Math.min(inp.paverRate, deliveryRate);
-    const tons = effRate * inp.shiftHours;
+    const truckDeliveredTons = n * loadsPerTruck * inp.truckCap;
+    const tons = Math.min(paverMaxTons, truckDeliveredTons);
+    const deliveryRate = inp.shiftHours > 0 ? truckDeliveredTons / inp.shiftHours : 0; // avg tons/hr trucks can actually deliver
     const manHours = inp.crewSize * inp.shiftHours;
     const truckHours = n * inp.shiftHours;
     const crewDollars = inp.crewCost * inp.shiftHours;
@@ -197,8 +203,8 @@ function computeRows(inp) {
     const tonsPerTruckHour = truckHours > 0 ? tons / truckHours : 0;
     const tonsPerCrewHour = inp.shiftHours > 0 ? tons / inp.shiftHours : 0;
     const tonsPerManHour = manHours > 0 ? tons / manHours : 0;
-    const bottleneck = deliveryRate < inp.paverRate ? "trucks" : deliveryRate > inp.paverRate ? "paver" : "balanced";
-    rows.push({ n, deliveryRate, effRate, tons, manHours, truckHours, totalCost, costPerTon, tonsPerHour: effRate, tonsPerTruckHour, tonsPerCrewHour, tonsPerManHour, bottleneck });
+    const bottleneck = truckDeliveredTons < paverMaxTons ? "trucks" : truckDeliveredTons > paverMaxTons ? "paver" : "balanced";
+    rows.push({ n, deliveryRate, tons, manHours, truckHours, totalCost, costPerTon, tonsPerHour: inp.shiftHours > 0 ? tons / inp.shiftHours : 0, tonsPerTruckHour, tonsPerCrewHour, tonsPerManHour, bottleneck, loadsPerTruck });
   }
   return rows;
 }
@@ -211,8 +217,10 @@ function render() {
   if (!rows.length) return;
   const optimal = rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]);
   const focus = rows.find((r) => r.n === lastHoverN) || optimal;
-  const exactNeeded = ((inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn) > 0 && inp.truckCap > 0)
-    ? inp.paverRate / ((inp.truckCap * 60) / (inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn)) : 0;
+  const cycleTime = inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn;
+  const utilFrac = inp.utilPct / 100;
+  const exactNeeded = (cycleTime > 0 && inp.truckCap > 0 && utilFrac > 0)
+    ? inp.paverRate / (((inp.truckCap * 60) / cycleTime) * utilFrac) : 0;
 
   // gauge
   const gaugeMax = Math.max(inp.paverRate, ...rows.map(r => r.deliveryRate)) * 1.1 || 1;
@@ -230,7 +238,8 @@ function render() {
 
   // stats
   $('statTrucks').textContent = optimal.n;
-  $('statTrucksSub').textContent = `exact need: ${fmt(exactNeeded, 1)}`;
+  $('statTrucksSub').textContent = `theoretical continuous need: ${fmt(exactNeeded, 1)}`;
+  $('statLoads').textContent = optimal.loadsPerTruck;
   $('statCost').textContent = money(optimal.costPerTon);
   $('statCostSub').textContent = `at ${optimal.n} trucks`;
   $('statTons').textContent = fmt(optimal.tons);
