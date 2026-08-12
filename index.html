@@ -139,6 +139,13 @@
     <div class="card stat"><div class="stat-label">Total cost</div><div class="stat-value" id="statTotal">—</div><div class="stat-sub" id="statTotalSub"></div></div>
   </div>
 
+  <!-- Chart -->
+  <div class="card" style="padding:16px; margin-top:14px;">
+    <div class="section-title" style="margin-top:0;">Cost per Ton by Truck Count</div>
+    <svg id="chartSvg" viewBox="0 0 340 170" style="width:100%; height:auto; overflow:visible;"></svg>
+    <div style="text-align:center; font-size:10.5px; color:#7A7E86; margin-top:2px;">trucks →</div>
+  </div>
+
   <!-- Table -->
   <div class="card" style="padding:16px; margin-top:14px;">
     <div class="section-title" style="margin-top:0;">Shift Breakdown by Truck Count</div>
@@ -258,6 +265,58 @@ function render() {
     tr.innerHTML = `<td>${r.n}${r.n === optimal.n ? ' ★' : ''}</td><td>${fmt(r.manHours)}</td><td>${fmt(r.truckHours)}</td><td>${fmt(r.tons)}</td><td>${fmt(r.tonsPerHour,1)}</td><td>${fmt(r.tonsPerManHour,2)}</td><td>${fmt(r.tonsPerTruckHour,2)}</td><td>${fmt(r.tonsPerCrewHour,1)}</td><td>${money(r.totalCost)}</td><td>${money(r.costPerTon)}</td>`;
     tbody.appendChild(tr);
   });
+
+  drawChart(rows, optimal);
+}
+
+function drawChart(rows, optimal) {
+  const svg = $('chartSvg');
+  const W = 340, H = 170;
+  const padL = 34, padR = 8, padT = 8, padB = 22;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const maxCost = Math.max(...rows.map((r) => r.costPerTon)) * 1.08 || 1;
+  const minCost = 0;
+  const xFor = (n) => padL + ((n - rows[0].n) / Math.max(1, rows[rows.length - 1].n - rows[0].n)) * plotW;
+  const yFor = (c) => padT + plotH - ((c - minCost) / (maxCost - minCost)) * plotH;
+
+  const points = rows.map((r) => `${xFor(r.n).toFixed(1)},${yFor(r.costPerTon).toFixed(1)}`).join(' ');
+
+  // gridlines + y labels (4 bands)
+  let grid = '';
+  for (let i = 0; i <= 4; i++) {
+    const val = (maxCost / 4) * i;
+    const y = yFor(val);
+    grid += `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W - padR}" y2="${y.toFixed(1)}" stroke="#2E3034" stroke-width="1"/>`;
+    grid += `<text x="${padL - 6}" y="${(y + 3).toFixed(1)}" fill="#9CA0A8" font-size="8" font-family="IBM Plex Mono, monospace" text-anchor="end">$${Math.round(val)}</text>`;
+  }
+
+  // x labels — thin out if there are many trucks so labels don't overlap
+  const step = rows.length > 14 ? Math.ceil(rows.length / 10) : 1;
+  let xLabels = '';
+  rows.forEach((r, i) => {
+    if (i % step === 0 || i === rows.length - 1) {
+      xLabels += `<text x="${xFor(r.n).toFixed(1)}" y="${H - 6}" fill="#7A7E86" font-size="8" font-family="IBM Plex Mono, monospace" text-anchor="middle">${r.n}</text>`;
+    }
+  });
+
+  // optimal marker line
+  const optLine = optimal
+    ? `<line x1="${xFor(optimal.n).toFixed(1)}" y1="${padT}" x2="${xFor(optimal.n).toFixed(1)}" y2="${padT + plotH}" stroke="#F2662D" stroke-width="1.5" stroke-dasharray="4 3"/>`
+    : '';
+
+  const dots = rows
+    .map((r) => `<circle cx="${xFor(r.n).toFixed(1)}" cy="${yFor(r.costPerTon).toFixed(1)}" r="${r.n === optimal?.n ? 3.5 : 2.5}" fill="${r.n === optimal?.n ? '#F2662D' : '#F4C542'}"/>`)
+    .join('');
+
+  svg.innerHTML = `
+    ${grid}
+    ${optLine}
+    <polyline points="${points}" fill="none" stroke="#F4C542" stroke-width="2"/>
+    ${dots}
+    ${xLabels}
+  `;
 }
 
 ['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','utilPct'].forEach((id) => {
