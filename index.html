@@ -26,9 +26,10 @@
   .section-title { font-size: 12px; color: #9CA0A8; margin: 18px 0 10px; }
   .field { margin-bottom: 10px; }
   .field label { display: block; font-size: 11.5px; color: #9CA0A8; margin-bottom: 5px; }
-  input[type=number], input[type=text] {
+  input[type=number], input[type=text], input[type=time] {
     width: 100%; background: #1B1C1F; border: 1px solid #3A3D42; color: #E7E7E9;
     border-radius: 6px; padding: 10px; font-family: 'IBM Plex Mono', monospace; font-size: 14px;
+    color-scheme: dark;
   }
   input:focus { outline: 2px solid #F2662D; outline-offset: 1px; }
   .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -51,13 +52,19 @@
   .stat-value { font-family: 'IBM Plex Mono', monospace; font-size: 18px; font-weight: 600; color: #F5F5F6; margin-top: 4px; }
   .stat-sub { font-size: 10.5px; color: #7A7E86; margin-top: 2px; }
   .statgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
-  th { text-align: right; color: #7A7E86; font-weight: 500; padding: 0 6px 8px; white-space: nowrap; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 12px; }
+  th { text-align: right; color: #7A7E86; font-weight: 500; padding: 0 5px 8px; white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
-  td { text-align: right; padding: 7px 6px; border-top: 1px solid #2E3034; white-space: nowrap; }
+  td { text-align: right; padding: 6px 4px; border-top: 1px solid #2E3034; white-space: nowrap; }
   tr.optimal { background: rgba(242,102,45,0.12); }
   tr.optimal td:first-child { box-shadow: inset 3px 0 0 #F2662D; font-weight: 600; color: #F2662D; }
-  .tablewrap { overflow-x: auto; }
+  .tablewrap { overflow-x: auto; position: relative; -webkit-overflow-scrolling: touch; }
+  .tablewrap.scrollable::after {
+    content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 22px; pointer-events: none;
+    background: linear-gradient(to right, transparent, #232427);
+  }
+  .scroll-hint { font-size: 10px; color: #7A7E86; text-align: right; margin-top: 4px; display: none; }
+  .scroll-hint.show { display: block; }
   .foot { font-size: 11px; color: #7A7E86; margin-top: 14px; line-height: 1.5; }
   .spin { animation: spin 1s linear infinite; display: inline-block; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -79,6 +86,10 @@
     <div class="section-title" style="margin-top:0;">Haul Route — Live Drive Time</div>
     <div class="field">
       <label>Plant / stockpile location</label>
+      <select id="plantSelect" style="width:100%; background:#1B1C1F; border:1px solid #3A3D42; color:#E7E7E9; border-radius:6px; padding:10px; font-family:'IBM Plex Mono', monospace; font-size:14px; margin-bottom:8px; color-scheme: dark;">
+        <option value="">— Select a plant —</option>
+        <option value="Custom">Custom / other (type below)</option>
+      </select>
       <input type="text" id="plantLoc" placeholder="address, or lat, lon from a dropped pin" />
     </div>
     <div class="field">
@@ -106,9 +117,9 @@
       <div class="field"><label>Crew + equipment cost ($/hr)</label><input type="number" id="crewCost" value="640" /></div>
       <div class="field"><label>Shift length (hrs)</label><input type="number" id="shiftHours" value="10" step="0.5" /></div>
       <div class="field"><label>Truck capacity (tons)</label><input type="number" id="truckCap" value="18" /></div>
-      <div class="field"><label>Truck cost ($/hr)</label><input type="number" id="truckCost" value="95" /></div>
-      <div class="field"><label>Utilization — percent</label><input type="number" id="utilPct" value="85" step="1" /></div>
-      <div class="field"><label>Utilization — min / hour</label><input type="number" id="utilMin" value="51" step="1" /></div>
+      <div class="field"><label>Truck cost ($/hr)</label><input type="number" id="truckCost" value="110" /></div>
+      <div class="field"><label>Utilization — percent</label><input type="number" id="utilPct" value="83.3" step="1" /></div>
+      <div class="field"><label>Utilization — min / hour</label><input type="number" id="utilMin" value="50" step="1" /></div>
       <div class="field"><label>Material cost ($/ton, optional)</label><input type="number" id="matCost" value="0" /></div>
       <div class="field"><label>Trucks to compare (min–max)</label>
         <div style="display:flex; gap:6px;">
@@ -149,21 +160,84 @@
   <!-- Table -->
   <div class="card" style="padding:16px; margin-top:14px;">
     <div class="section-title" style="margin-top:0;">Shift Breakdown by Truck Count</div>
-    <div class="tablewrap">
+    <div class="tablewrap" id="breakdownWrap">
       <table>
         <thead><tr>
-          <th>Trk</th><th>Man Hrs</th><th>Trk Hrs</th><th>Tons</th><th>T/Hr</th><th>T/ManHr</th><th>T/TrkHr</th><th>T/CrewHr</th><th>Cost</th><th>$/Ton</th>
+          <th>Trk</th><th>Man Hrs</th><th>Trk Hrs</th><th>Tons</th><th>T/Hr</th><th>T/ManHr</th><th>T/TrkHr</th><th>Cost</th><th>$/Ton</th>
         </tr></thead>
         <tbody id="tableBody" class="mono"></tbody>
       </table>
     </div>
+    <div class="scroll-hint" id="breakdownScrollHint">← swipe to see more columns →</div>
     <div class="foot">Cost per ton bottoms out where truck delivery capacity just meets the paver's max rate. Fewer trucks starve the paver; more trucks just queue and burn hours. Each truck is only credited for full completed cycles in the shift — a truck that starts a load but can't finish it before the shift ends gets no partial credit, so tons/shift can step rather than climb smoothly as trucks are added.</div>
+  </div>
+
+  <!-- Plant-Queue Schedule (advanced) -->
+  <div class="card" style="padding:16px; margin-top:14px;">
+    <div class="section-title" style="margin-top:0;">Plant-Queue Schedule</div>
+    <div style="font-size:11px; color:#7A7E86; margin-bottom:12px;">Backs into each truck's actual load time from when you want the paver started, staggers trucks so the plant never stacks up more than your limit, and rounds each truck's real worked hours to the nearest quarter hour.</div>
+
+    <div class="grid2">
+      <div class="field"><label>Paving start time</label><input type="time" id="prodStart" value="07:00" /></div>
+      <div class="field"><label>Trucks to schedule</label><input type="number" id="scheduleTrucks" value="8" /></div>
+      <div class="field"><label>Max trucks stacked at plant</label><input type="number" id="maxStack" value="10" /></div>
+    </div>
+    <button class="primary" id="syncTrucksBtn" type="button" style="background:#2E3336; color:#E7E7E9; margin-top:2px;">Use optimal truck count</button>
+
+    <div class="statgrid" style="margin-top:14px;">
+      <div class="card stat"><div class="stat-label">Waves</div><div class="stat-value" id="schedWaves">—</div><div class="stat-sub" id="schedWavesSub"></div></div>
+      <div class="card stat"><div class="stat-label">Tons / shift</div><div class="stat-value" id="schedTons">—</div><div class="stat-sub"></div></div>
+      <div class="card stat"><div class="stat-label">Total cost</div><div class="stat-value" id="schedCost">—</div><div class="stat-sub"></div></div>
+      <div class="card stat"><div class="stat-label">$ / ton</div><div class="stat-value" id="schedCostPerTon">—</div><div class="stat-sub" id="schedCompareSub"></div></div>
+    </div>
+
+    <div class="tablewrap" id="scheduleWrap" style="margin-top:14px;">
+      <table>
+        <thead><tr>
+          <th>Truck</th><th>Start</th><th>Finish</th><th>Loads</th><th>Hrs</th><th>Cost</th>
+        </tr></thead>
+        <tbody id="scheduleBody" class="mono"></tbody>
+      </table>
+    </div>
+    <div class="scroll-hint" id="scheduleScrollHint">← swipe to see more columns →</div>
+    <div class="foot">Wave 1's shared start time is timed backward from "Paving start time" — load time plus haul-out — so the first load lands exactly when you want paving to begin. Each later wave starts once the plant limit clears (max stacked × load time). All trucks in the same wave show that one shared "Start" time, but under the hood only one truck can be under the silo at once — each truck's actual loading is staggered by load time within its wave, and that real load moment is what drives its planned finish, loads, and hours. Nobody is paid for the flat shift length, only for cycles actually completed.</div>
   </div>
 
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
+
+const PLANT_LIBRARY = [
+  { name: 'Chesterfield', address: '3700 Memphis Blvd, Midlothian, VA 23112' },
+  { name: 'Deepwater', address: '2106 Deepwater Terminal Road, Richmond, VA 23234' },
+  { name: 'Doswell', address: '10399-10311 Verdon Road, Doswell, VA 23047' },
+  { name: 'Lee Hall', address: '9393 Merrimac Trail, Williamsburg, VA 23185' },
+  { name: 'Hampton', address: '1922 W Pembroke Ave, Hampton, VA 23661' },
+  { name: 'Norfolk', address: '3425 Westminster Ave, Norfolk, VA 23504' },
+  { name: 'Suffolk', address: '1275 Purple Martin Blvd, Suffolk, VA 23435' },
+  { name: 'Pokomoke', address: '223 Ocean City Hwy, Pokomoke City, MD 21851' },
+];
+
+(function populatePlantSelect() {
+  const sel = $('plantSelect');
+  PLANT_LIBRARY.forEach((p) => {
+    const opt = document.createElement('option');
+    opt.value = p.name;
+    opt.textContent = p.name;
+    // insert before the "Custom / other" option, which stays last
+    sel.insertBefore(opt, sel.lastElementChild);
+  });
+})();
+
+$('plantSelect').addEventListener('change', (e) => {
+  const chosen = PLANT_LIBRARY.find((p) => p.name === e.target.value);
+  if (chosen) {
+    $('plantLoc').value = chosen.address;
+  }
+  // "Custom / other" and the blank option leave plantLoc as-is for manual typing or a dropped pin
+});
+
 const fmt = (n, d = 0) => (isFinite(n) ? n : 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 const money = (n) => (isFinite(n) ? n : 0).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 
@@ -183,6 +257,9 @@ function getInputs() {
     dumpMin: +$('dumpMin').value || 0,
     haulOut: +$('haulOut').value || 0,
     haulReturn: +$('haulReturn').value || 0,
+    prodStart: $('prodStart').value || '07:00',
+    scheduleTrucks: Math.max(1, Math.round(+$('scheduleTrucks').value || 1)),
+    maxStack: Math.max(1, Math.round(+$('maxStack').value || 1)),
   };
 }
 
@@ -216,7 +293,59 @@ function computeRows(inp) {
   return rows;
 }
 
+// --- Plant-Queue Schedule ---
+
+function parseTimeToMinutes(hhmm) {
+  const [h, m] = (hhmm || '07:00').split(':').map((x) => parseInt(x, 10) || 0);
+  return h * 60 + m;
+}
+
+function minutesToClock(mins) {
+  let m = Math.round(mins);
+  const dayShift = Math.floor(m / 1440);
+  m = ((m % 1440) + 1440) % 1440;
+  let h = Math.floor(m / 60);
+  const mm = m % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  const label = `${h}:${String(mm).padStart(2, '0')} ${ampm}`;
+  return dayShift > 0 ? `${label} (+${dayShift}d)` : dayShift < 0 ? `${label} (${dayShift}d)` : label;
+}
+
+function computeSchedule(inp) {
+  const cycleTime = inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn;
+  const utilFrac = inp.utilPct / 100;
+  const prodStartMin = parseTimeToMinutes(inp.prodStart);
+  const shiftEndMin = prodStartMin + inp.shiftHours * 60;
+  const waveOffset = inp.maxStack * inp.loadMin;
+  const wave1FirstLoadStart = prodStartMin - inp.haulOut - inp.loadMin;
+
+  const trucks = [];
+  for (let t = 0; t < inp.scheduleTrucks; t++) {
+    const wave = Math.floor(t / inp.maxStack);
+    const posInWave = t % inp.maxStack;
+    const waveStart = wave1FirstLoadStart + wave * waveOffset; // shared, displayed start time for the whole wave
+    const loadStart = waveStart + posInWave * inp.loadMin; // actual staggered load time — only one truck fits under the silo at a time
+    const departPlant = loadStart + inp.loadMin;
+    const firstDelivery = departPlant + inp.haulOut;
+    const window = shiftEndMin - loadStart;
+    const effectiveWindow = Math.max(0, window * utilFrac);
+    const loads = cycleTime > 0 ? Math.floor(effectiveWindow / cycleTime) : 0;
+    const workMinutes = cycleTime > 0 ? (loads * cycleTime) / utilFrac : 0;
+    const hoursRaw = workMinutes / 60;
+    const workMinutesRounded = Math.ceil(workMinutes / 15) * 15; // round up to next quarter hour — what the truck is paid through
+    const lastDump = loadStart + workMinutesRounded;
+    const hoursRounded = workMinutesRounded / 60;
+    const tons = loads * inp.truckCap;
+    const cost = hoursRounded * inp.truckCost;
+    trucks.push({ truck: t + 1, wave: wave + 1, waveStart, loadStart, departPlant, firstDelivery, loads, lastDump, hoursRaw, hoursRounded, tons, cost });
+  }
+  return trucks;
+}
+
 let lastHoverN = null;
+let truckLabels = {}; // truck index -> user-typed name/number, survives re-renders
 
 function render() {
   const inp = getInputs();
@@ -262,11 +391,52 @@ function render() {
     if (r.n === optimal.n) tr.className = 'optimal';
     tr.onmouseenter = () => { lastHoverN = r.n; render(); };
     tr.onclick = () => { lastHoverN = r.n; render(); };
-    tr.innerHTML = `<td>${r.n}${r.n === optimal.n ? ' ★' : ''}</td><td>${fmt(r.manHours)}</td><td>${fmt(r.truckHours)}</td><td>${fmt(r.tons)}</td><td>${fmt(r.tonsPerHour,1)}</td><td>${fmt(r.tonsPerManHour,2)}</td><td>${fmt(r.tonsPerTruckHour,2)}</td><td>${fmt(r.tonsPerCrewHour,1)}</td><td>${money(r.totalCost)}</td><td>${money(r.costPerTon)}</td>`;
+    tr.innerHTML = `<td>${r.n}${r.n === optimal.n ? ' ★' : ''}</td><td>${fmt(r.manHours)}</td><td>${fmt(r.truckHours)}</td><td>${fmt(r.tons)}</td><td>${fmt(r.tonsPerHour,1)}</td><td>${fmt(r.tonsPerManHour,2)}</td><td>${fmt(r.tonsPerTruckHour,2)}</td><td>${money(r.totalCost)}</td><td>${money(r.costPerTon)}</td>`;
     tbody.appendChild(tr);
   });
 
   drawChart(rows, optimal);
+  renderSchedule(inp, optimal);
+}
+
+function renderSchedule(inp, optimal) {
+  const trucks = computeSchedule(inp);
+  const numWaves = trucks.length ? Math.max(...trucks.map((t) => t.wave)) : 0;
+  const totalTons = trucks.reduce((s, t) => s + t.tons, 0);
+  const truckCostTotal = trucks.reduce((s, t) => s + t.cost, 0);
+  const crewDollars = inp.crewCost * inp.shiftHours;
+  const totalCost = truckCostTotal + crewDollars;
+  const costPerTon = totalTons > 0 ? totalCost / totalTons : 0;
+
+  $('schedWaves').textContent = numWaves;
+  $('schedWavesSub').textContent = `${inp.maxStack} max stacked`;
+  $('schedTons').textContent = fmt(totalTons);
+  $('schedCost').textContent = money(totalCost);
+  $('schedCostPerTon').textContent = money(costPerTon);
+  if (optimal) {
+    const diff = costPerTon - optimal.costPerTon;
+    const sign = diff <= 0 ? '−' : '+';
+    $('schedCompareSub').textContent = `vs. ${money(optimal.costPerTon)} flat-shift model (${sign}${money(Math.abs(diff))})`;
+  } else {
+    $('schedCompareSub').textContent = '';
+  }
+
+  const tbody = $('scheduleBody');
+  tbody.innerHTML = '';
+  trucks.forEach((t) => {
+    const tr = document.createElement('tr');
+    const numCell = document.createElement('td');
+    numCell.style.whiteSpace = 'nowrap';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.value = truckLabels[t.truck] || `Truck ${t.truck}`;
+    nameInput.style.cssText = 'width:68px; background:#1B1C1F; border:1px solid #3A3D42; color:#E7E7E9; border-radius:5px; padding:5px 5px; font-family:inherit; font-size:11px;';
+    nameInput.addEventListener('input', (e) => { truckLabels[t.truck] = e.target.value; });
+    numCell.appendChild(nameInput);
+    tr.appendChild(numCell);
+    tr.insertAdjacentHTML('beforeend', `<td>${minutesToClock(t.waveStart)}</td><td>${minutesToClock(t.lastDump)}</td><td>${t.loads}</td><td>${t.hoursRounded.toFixed(2)}</td><td>$${fmt(t.cost)}</td>`);
+    tbody.appendChild(tr);
+  });
 }
 
 function drawChart(rows, optimal) {
@@ -319,8 +489,17 @@ function drawChart(rows, optimal) {
   `;
 }
 
-['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','utilPct'].forEach((id) => {
+['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','utilPct','prodStart','scheduleTrucks','maxStack'].forEach((id) => {
   $(id).addEventListener('input', render);
+});
+
+$('syncTrucksBtn').addEventListener('click', () => {
+  const inp = getInputs();
+  const rows = computeRows(inp);
+  if (!rows.length) return;
+  const optimal = rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]);
+  $('scheduleTrucks').value = optimal.n;
+  render();
 });
 
 // Keep utilization percent and minutes/hour synced both ways
@@ -386,6 +565,24 @@ $('lookupBtn').addEventListener('click', async () => {
 });
 
 render();
+
+function updateScrollHints() {
+  [['breakdownWrap', 'breakdownScrollHint'], ['scheduleWrap', 'scheduleScrollHint']].forEach(([wrapId, hintId]) => {
+    const wrap = $(wrapId);
+    const hint = $(hintId);
+    if (!wrap || !hint) return;
+    const overflowing = wrap.scrollWidth > wrap.clientWidth + 2;
+    wrap.classList.toggle('scrollable', overflowing);
+    hint.classList.toggle('show', overflowing);
+  });
+}
+updateScrollHints();
+window.addEventListener('resize', updateScrollHints);
+const _render = render;
+render = function () {
+  _render();
+  setTimeout(updateScrollHints, 0);
+};
 
 // Register service worker for installability
 if ('serviceWorker' in navigator) {
