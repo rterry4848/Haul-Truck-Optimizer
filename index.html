@@ -227,6 +227,7 @@
     <div class="statgrid" style="margin-top:14px;">
       <div class="card stat"><div class="stat-label">Waves</div><div class="stat-value" id="schedWaves">—</div><div class="stat-sub" id="schedWavesSub"></div></div>
       <div class="card stat"><div class="stat-label">Tons / shift</div><div class="stat-value" id="schedTons">—</div><div class="stat-sub"></div></div>
+      <div class="card stat"><div class="stat-label">Total truck hours</div><div class="stat-value" id="schedTruckHours">—</div><div class="stat-sub" id="schedTruckHoursSub"></div></div>
       <div class="card stat"><div class="stat-label">Total cost</div><div class="stat-value" id="schedCost">—</div><div class="stat-sub"></div></div>
       <div class="card stat"><div class="stat-label">$ / ton</div><div class="stat-value" id="schedCostPerTon">—</div><div class="stat-sub" id="schedCompareSub"></div></div>
     </div>
@@ -489,6 +490,7 @@ function renderSchedule(inp, optimal) {
   const numWaves = trucks.length ? Math.max(...trucks.map((t) => t.wave)) : 0;
   const totalTons = trucks.reduce((s, t) => s + t.tons, 0);
   const truckCostTotal = trucks.reduce((s, t) => s + t.cost, 0);
+  const totalTruckHours = trucks.reduce((s, t) => s + t.hoursRounded, 0);
   const crewDollars = inp.crewCost * inp.shiftHours;
   const totalCost = truckCostTotal + crewDollars;
   const costPerTon = totalTons > 0 ? totalCost / totalTons : 0;
@@ -497,6 +499,8 @@ function renderSchedule(inp, optimal) {
   $('schedWaves').textContent = numWaves;
   $('schedWavesSub').textContent = `${inp.maxStack} max stacked`;
   $('schedTons').textContent = fmt(totalTons);
+  $('schedTruckHours').textContent = fmt(totalTruckHours, 2);
+  $('schedTruckHoursSub').textContent = `${trucks.length} truck${trucks.length === 1 ? '' : 's'}`;
   $('schedCost').textContent = money(totalCost);
   $('schedCostPerTon').textContent = money(costPerTon);
   if (optimal) {
@@ -660,13 +664,14 @@ function updateActualsRow(planned, entry, inp, optimumCostPerTon) {
 }
 
 function updateActualsTotals(inp, schedule, optimumCostPerTon) {
-  let totalLoads = 0, totalTons = 0, totalCost = 0;
+  let totalLoads = 0, totalTons = 0, totalCost = 0, totalHours = 0;
   schedule.forEach((planned) => {
     const entry = getActualEntry(planned.truck, planned);
     const calc = computeActualRow(entry, inp);
     totalLoads += calc.loads;
     totalTons += calc.tons;
     totalCost += calc.cost;
+    totalHours += calc.hours;
   });
   const blendedCostPerTon = totalTons > 0 ? totalCost / totalTons : 0;
   const optimumCostForSameTons = totalTons * optimumCostPerTon;
@@ -680,9 +685,9 @@ function updateActualsTotals(inp, schedule, optimumCostPerTon) {
       <td>Total</td>
       <td></td>
       <td></td>
-      <td>${fmt(totalLoads)}</td>
-      <td></td>
-      <td>${fmt(totalTons)}</td>
+      <td style="text-align:center;">${fmt(totalLoads)}</td>
+      <td style="text-align:center;">${fmt(totalTons)}</td>
+      <td>${totalHours.toFixed(2)}</td>
       <td>$${fmt(totalCost, 2)}</td>
       <td>${totalTons > 0 ? '$' + blendedCostPerTon.toFixed(2) : '—'}</td>
       <td style="color:${deltaColor};">${deltaLabel}</td>
@@ -960,6 +965,15 @@ function buildPrintReport() {
     return `<tr><td>${name}</td><td>${minutesToClock(t.waveStart)}</td><td>${minutesToClock(t.lastDump)}</td><td>${t.loads}</td><td>${t.hoursRounded.toFixed(2)}</td><td>$${fmt(t.cost)}</td></tr>`;
   }).join('');
 
+  const numWaves = schedule.length ? Math.max(...schedule.map((t) => t.wave)) : 0;
+  const schedTotalTons = schedule.reduce((s, t) => s + t.tons, 0);
+  const schedTruckCostTotal = schedule.reduce((s, t) => s + t.cost, 0);
+  const schedTotalTruckHours = schedule.reduce((s, t) => s + t.hoursRounded, 0);
+  const schedCrewDollars = inp.crewCost * inp.shiftHours;
+  const schedTotalCost = schedTruckCostTotal + schedCrewDollars;
+  const schedCostPerTon = schedTotalTons > 0 ? schedTotalCost / schedTotalTons : 0;
+  const schedTruckOnlyCostPerTon = schedTotalTons > 0 ? schedTruckCostTotal / schedTotalTons : 0;
+
   const now = new Date();
   const projectName = ($('projectName').value || '').trim();
   const reportTitle = 'Paving Truck Optimizer - Job Report' + (projectName ? ' - ' + projectName : '');
@@ -985,6 +999,14 @@ function buildPrintReport() {
     </div>
 
     <h2>Plant-Queue Schedule</h2>
+    <div class="kv">
+      <div><span>Waves:</span> ${numWaves} (${inp.maxStack} max stacked)</div>
+      <div><span>Tons / shift:</span> ${fmt(schedTotalTons)}</div>
+      <div><span>Total truck hours:</span> ${fmt(schedTotalTruckHours,2)} (${schedule.length} truck${schedule.length===1?'':'s'})</div>
+      <div><span>Total cost:</span> $${fmt(schedTotalCost,2)}</div>
+      <div><span>$ / ton:</span> $${schedCostPerTon.toFixed(2)}</div>
+      <div><span>Trucking only vs. flat-shift:</span> $${schedTruckOnlyCostPerTon.toFixed(2)} vs. $${optimumCostPerTon.toFixed(2)}</div>
+    </div>
     <table>
       <thead><tr><th>Truck</th><th>Start</th><th>Planned Finish</th><th>Loads</th><th>Hours</th><th>Cost</th></tr></thead>
       <tbody>${scheduleRowsHtml}</tbody>
