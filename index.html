@@ -492,7 +492,8 @@ function renderSchedule(inp, optimal) {
   const truckCostTotal = trucks.reduce((s, t) => s + t.cost, 0);
   const totalTruckHours = trucks.reduce((s, t) => s + t.hoursRounded, 0);
   const crewDollars = inp.crewCost * inp.shiftHours;
-  const totalCost = truckCostTotal + crewDollars;
+  const matDollars = inp.matCost * totalTons;
+  const totalCost = truckCostTotal + crewDollars + matDollars;
   const costPerTon = totalTons > 0 ? totalCost / totalTons : 0;
   const truckOnlyCostPerTon = totalTons > 0 ? truckCostTotal / totalTons : 0;
 
@@ -970,7 +971,8 @@ function buildPrintReport() {
   const schedTruckCostTotal = schedule.reduce((s, t) => s + t.cost, 0);
   const schedTotalTruckHours = schedule.reduce((s, t) => s + t.hoursRounded, 0);
   const schedCrewDollars = inp.crewCost * inp.shiftHours;
-  const schedTotalCost = schedTruckCostTotal + schedCrewDollars;
+  const schedMatDollars = inp.matCost * schedTotalTons;
+  const schedTotalCost = schedTruckCostTotal + schedCrewDollars + schedMatDollars;
   const schedCostPerTon = schedTotalTons > 0 ? schedTotalCost / schedTotalTons : 0;
   const schedTruckOnlyCostPerTon = schedTotalTons > 0 ? schedTruckCostTotal / schedTotalTons : 0;
 
