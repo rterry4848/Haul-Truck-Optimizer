@@ -470,6 +470,7 @@ function renderSchedule(inp, optimal) {
   const crewDollars = inp.crewCost * inp.shiftHours;
   const totalCost = truckCostTotal + crewDollars;
   const costPerTon = totalTons > 0 ? totalCost / totalTons : 0;
+  const truckOnlyCostPerTon = totalTons > 0 ? truckCostTotal / totalTons : 0;
 
   $('schedWaves').textContent = numWaves;
   $('schedWavesSub').textContent = `${inp.maxStack} max stacked`;
@@ -477,9 +478,10 @@ function renderSchedule(inp, optimal) {
   $('schedCost').textContent = money(totalCost);
   $('schedCostPerTon').textContent = money(costPerTon);
   if (optimal) {
-    const diff = costPerTon - optimal.costPerTon;
+    const optimumTruckCostPerTon = computeOptimumTruckCostPerTon(inp, optimal);
+    const diff = truckOnlyCostPerTon - optimumTruckCostPerTon;
     const sign = diff <= 0 ? '−' : '+';
-    $('schedCompareSub').textContent = `vs. ${money(optimal.costPerTon)} flat-shift model (${sign}${money(Math.abs(diff))})`;
+    $('schedCompareSub').textContent = `trucking only: ${money(truckOnlyCostPerTon)} vs. ${money(optimumTruckCostPerTon)} flat-shift (${sign}${money(Math.abs(diff))})`;
   } else {
     $('schedCompareSub').textContent = '';
   }
