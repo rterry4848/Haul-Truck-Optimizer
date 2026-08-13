@@ -354,6 +354,19 @@ function computeRows(inp) {
   return rows;
 }
 
+// Picks the lowest-$/ton row. When multiple truck counts tie on $/ton (e.g. crew cost is $0,
+// so cost scales exactly with tons and every truck-limited count looks identical), prefer the
+// one that also delivers more tons rather than silently defaulting to the fewest trucks checked.
+function pickOptimalRow(rows) {
+  if (!rows.length) return null;
+  const EPS = 0.0005; // sub-cent tolerance for float comparison
+  return rows.reduce((best, r) => {
+    if (r.costPerTon < best.costPerTon - EPS) return r;
+    if (Math.abs(r.costPerTon - best.costPerTon) <= EPS && r.tons > best.tons) return r;
+    return best;
+  }, rows[0]);
+}
+
 // --- Plant-Queue Schedule ---
 
 function parseTimeToMinutes(hhmm) {
@@ -422,7 +435,7 @@ function render() {
   const inp = getInputs();
   const rows = computeRows(inp);
   if (!rows.length) return;
-  const optimal = rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]);
+  const optimal = pickOptimalRow(rows);
   const focus = rows.find((r) => r.n === lastHoverN) || optimal;
   const cycleTime = inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn;
   const utilFrac = inp.utilPct / 100;
@@ -735,7 +748,7 @@ $('syncTrucksBtn').addEventListener('click', () => {
   const inp = getInputs();
   const rows = computeRows(inp);
   if (!rows.length) return;
-  const optimal = rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]);
+  const optimal = pickOptimalRow(rows);
   $('scheduleTrucks').value = optimal.n;
   render();
 });
@@ -923,7 +936,7 @@ $('loadJobFile').addEventListener('change', (e) => {
 function buildPrintReport() {
   const inp = getInputs();
   const rows = computeRows(inp);
-  const optimal = rows.length ? rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]) : null;
+  const optimal = pickOptimalRow(rows);
   const schedule = computeSchedule(inp);
   const optimumCostPerTon = computeOptimumTruckCostPerTon(inp, optimal);
 
