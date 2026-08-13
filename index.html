@@ -59,8 +59,8 @@
   tr.optimal { background: rgba(242,102,45,0.12); }
   tr.optimal td:first-child { box-shadow: inset 3px 0 0 #F2662D; font-weight: 600; color: #F2662D; }
   tfoot td { font-weight: 600; border-top: 2px solid #3A3D42; padding-top: 9px; color: #F5F5F6; }
-  .tablewrap { overflow-x: auto; position: relative; -webkit-overflow-scrolling: touch; }
-  .tablewrap.scrollable::after {
+  .tablewrap { overflow-x: auto; position: relative; -webkit-overflow-scrolling: touch; padding-right: 4px; }
+  .tablewrap.scrollable:not(.at-end)::after {
     content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 22px; pointer-events: none;
     background: linear-gradient(to right, transparent, #232427);
   }
@@ -532,13 +532,21 @@ function computeActualRow(entry, inp) {
   return { hours, loads, tons, cost, costPerTon };
 }
 
+// Actual Truck Performance costs are truck-only (no crew/material), so the benchmark it's compared
+// against must also be truck-only — not the blended optimal $/ton, which includes crew + material.
+function computeOptimumTruckCostPerTon(inp, optimal) {
+  if (!optimal || optimal.tons <= 0) return 0;
+  const truckOnlyCost = inp.truckCost * inp.shiftHours * optimal.n;
+  return truckOnlyCost / optimal.tons;
+}
+
 function renderActuals(inp, schedule, optimal) {
   const tbody = $('actualsBody');
   const tfoot = $('actualsFoot');
   tbody.innerHTML = '';
   tfoot.innerHTML = '';
 
-  const optimumCostPerTon = optimal ? optimal.costPerTon : 0;
+  const optimumCostPerTon = computeOptimumTruckCostPerTon(inp, optimal);
   let totalLoads = 0, totalTons = 0, totalCost = 0;
 
   schedule.forEach((planned) => {
@@ -790,18 +798,29 @@ $('lookupBtn').addEventListener('click', async () => {
 
 render();
 
+const SCROLL_WRAPS = ['breakdownWrap', 'scheduleWrap', 'actualsWrap'];
+const SCROLL_HINTS = { breakdownWrap: 'breakdownScrollHint', scheduleWrap: 'scheduleScrollHint', actualsWrap: 'actualsScrollHint' };
+
+function updateWrapScrollState(wrap, hint) {
+  if (!wrap || !hint) return;
+  const overflowing = wrap.scrollWidth > wrap.clientWidth + 2;
+  const atEnd = wrap.scrollLeft + wrap.clientWidth >= wrap.scrollWidth - 2;
+  wrap.classList.toggle('scrollable', overflowing);
+  wrap.classList.toggle('at-end', atEnd);
+  hint.classList.toggle('show', overflowing && !atEnd);
+}
+
 function updateScrollHints() {
-  [['breakdownWrap', 'breakdownScrollHint'], ['scheduleWrap', 'scheduleScrollHint'], ['actualsWrap', 'actualsScrollHint']].forEach(([wrapId, hintId]) => {
-    const wrap = $(wrapId);
-    const hint = $(hintId);
-    if (!wrap || !hint) return;
-    const overflowing = wrap.scrollWidth > wrap.clientWidth + 2;
-    wrap.classList.toggle('scrollable', overflowing);
-    hint.classList.toggle('show', overflowing);
+  SCROLL_WRAPS.forEach((wrapId) => {
+    updateWrapScrollState($(wrapId), $(SCROLL_HINTS[wrapId]));
   });
 }
 updateScrollHints();
 window.addEventListener('resize', updateScrollHints);
+SCROLL_WRAPS.forEach((wrapId) => {
+  const wrap = $(wrapId);
+  if (wrap) wrap.addEventListener('scroll', () => updateWrapScrollState(wrap, $(SCROLL_HINTS[wrapId])), { passive: true });
+});
 const _render = render;
 render = function () {
   _render();
@@ -895,7 +914,7 @@ function buildPrintReport() {
   const rows = computeRows(inp);
   const optimal = rows.length ? rows.reduce((b, r) => (r.costPerTon < b.costPerTon ? r : b), rows[0]) : null;
   const schedule = computeSchedule(inp);
-  const optimumCostPerTon = optimal ? optimal.costPerTon : 0;
+  const optimumCostPerTon = computeOptimumTruckCostPerTon(inp, optimal);
 
   let actualTotalTons = 0, actualTotalCost = 0, actualTotalLoads = 0;
   const actualRowsHtml = schedule.map((planned) => {
