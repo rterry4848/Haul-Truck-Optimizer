@@ -107,6 +107,10 @@
   <!-- Job Data -->
   <div class="card" style="padding:16px;">
     <div class="section-title" style="margin-top:0;">Job Data</div>
+    <div class="field">
+      <label>Project name</label>
+      <input type="text" id="projectName" placeholder="e.g. Route 17 Widening" />
+    </div>
     <div style="display:flex; flex-direction:column; gap:8px;">
       <button class="primary" id="exportReportBtn" type="button">Export Report (PDF)</button>
       <button class="primary" id="saveJobBtn" type="button" style="background:#2E3336; color:#E7E7E9;">Save Job Data</button>
@@ -214,6 +218,7 @@
 
     <div class="grid2">
       <div class="field"><label>Paving start time</label><input type="time" id="prodStart" value="07:00" /></div>
+      <div class="field"><label>Last truck unloaded</label><input type="time" id="lastUnload" value="17:00" /></div>
       <div class="field"><label>Trucks to schedule</label><input type="number" id="scheduleTrucks" value="8" /></div>
       <div class="field"><label>Max trucks stacked at plant</label><input type="number" id="maxStack" value="10" /></div>
     </div>
@@ -235,7 +240,7 @@
       </table>
     </div>
     <div class="scroll-hint" id="scheduleScrollHint">← swipe to see more columns →</div>
-    <div class="foot">Wave 1's shared start time is timed backward from "Paving start time" — load time plus haul-out — so the first load lands exactly when you want paving to begin. Each later wave starts once the plant limit clears (max stacked × load time). All trucks in the same wave show that one shared "Start" time, but under the hood only one truck can be under the silo at once — each truck's actual loading is staggered by load time within its wave, and that real load moment is what drives its planned finish, loads, and hours. Nobody is paid for the flat shift length, only for cycles actually completed.</div>
+    <div class="foot">Wave 1's shared start time is timed backward from "Paving start time" — load time plus haul-out — so the first load lands exactly when you want paving to begin. Each later wave starts once the plant limit clears (max stacked × load time). All trucks in the same wave show that one shared "Start" time, but under the hood only one truck can be under the silo at once — each truck's actual loading is staggered by load time within its wave. No truck is credited for a cycle it can't fully complete — load, haul, dump, and return — before "Last truck unloaded," so a truck that can't make it back in time is signed out after its previous load instead. "Planned Finish" always shows that true completion time; "Hrs" is rounded up to the nearest quarter hour for pay, which can run a few minutes past the finish time shown, same as normal payroll rounding.</div>
   </div>
 
   <!-- Actual Truck Performance -->
@@ -313,6 +318,7 @@ function getInputs() {
     haulOut: +$('haulOut').value || 0,
     haulReturn: +$('haulReturn').value || 0,
     prodStart: $('prodStart').value || '07:00',
+    lastUnload: $('lastUnload').value || '17:00',
     scheduleTrucks: Math.max(1, Math.round(+$('scheduleTrucks').value || 1)),
     maxStack: Math.max(1, Math.round(+$('maxStack').value || 1)),
   };
@@ -379,7 +385,8 @@ function computeSchedule(inp) {
   const cycleTime = inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn;
   const utilFrac = inp.utilPct / 100;
   const prodStartMin = parseTimeToMinutes(inp.prodStart);
-  const shiftEndMin = prodStartMin + inp.shiftHours * 60;
+  let shiftEndMin = parseTimeToMinutes(inp.lastUnload);
+  if (shiftEndMin <= prodStartMin) shiftEndMin += 1440; // last-unload crosses midnight relative to start
   const waveOffset = inp.maxStack * inp.loadMin;
   const wave1FirstLoadStart = prodStartMin - inp.haulOut - inp.loadMin;
 
@@ -393,11 +400,13 @@ function computeSchedule(inp) {
     const firstDelivery = departPlant + inp.haulOut;
     const window = shiftEndMin - loadStart;
     const effectiveWindow = Math.max(0, window * utilFrac);
+    // Strictly bounded: a truck only gets credit for a cycle it can fully complete — load, haul, dump,
+    // and be back — before the cutoff. No partial credit, and no rounding generosity at this step.
     const loads = cycleTime > 0 ? Math.floor(effectiveWindow / cycleTime) : 0;
     const workMinutes = cycleTime > 0 ? (loads * cycleTime) / utilFrac : 0;
     const hoursRaw = workMinutes / 60;
-    const workMinutesRounded = Math.ceil(workMinutes / 15) * 15; // round up to next quarter hour — what the truck is paid through
-    const lastDump = loadStart + workMinutesRounded;
+    const lastDump = loadStart + workMinutes; // true completion clock time — never past the cutoff, by construction
+    const workMinutesRounded = Math.ceil(workMinutes / 15) * 15; // rounded up for PAY purposes only — may show a few minutes more than the true finish time above, same as normal payroll rounding
     const hoursRounded = workMinutesRounded / 60;
     const tons = loads * inp.truckCap;
     const cost = hoursRounded * inp.truckCost;
@@ -718,7 +727,7 @@ function drawChart(rows, optimal) {
   `;
 }
 
-['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','utilPct','prodStart','scheduleTrucks','maxStack'].forEach((id) => {
+['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','utilPct','prodStart','lastUnload','scheduleTrucks','maxStack'].forEach((id) => {
   $(id).addEventListener('input', render);
 });
 
@@ -831,7 +840,7 @@ render = function () {
 
 // --- Job Data: Save / Load / Export Report ---
 
-const JOB_INPUT_IDS = ['paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','utilPct','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','prodStart','scheduleTrucks','maxStack'];
+const JOB_INPUT_IDS = ['projectName','paverRate','truckCap','shiftHours','crewSize','crewCost','truckCost','utilPct','matCost','minTrucks','maxTrucks','loadMin','dumpMin','haulOut','haulReturn','prodStart','lastUnload','scheduleTrucks','maxStack'];
 
 function buildJobData() {
   const inputs = {};
@@ -939,8 +948,10 @@ function buildPrintReport() {
   }).join('');
 
   const now = new Date();
+  const projectName = ($('projectName').value || '').trim();
+  const reportTitle = 'Paving Truck Optimizer - Job Report' + (projectName ? ' - ' + projectName : '');
   const html = `
-    <h1>Paving Truck Optimizer — Job Report</h1>
+    <h1>${reportTitle}</h1>
     <div class="meta">Generated ${now.toLocaleString()} &nbsp;·&nbsp; Plant: ${$('plantLoc').value || '—'} &nbsp;·&nbsp; Site: ${$('siteLoc').value || '—'}</div>
 
     <h2>Job Inputs</h2>
@@ -954,6 +965,7 @@ function buildPrintReport() {
       <div><span>Utilization:</span> ${fmt(inp.utilPct,1)}% (${fmt(inp.utilPct*0.6,0)} min/hr)</div>
       <div><span>Cycle time:</span> ${inp.loadMin + inp.haulOut + inp.dumpMin + inp.haulReturn} min (load ${inp.loadMin} + haul out ${inp.haulOut} + dump ${inp.dumpMin} + haul return ${inp.haulReturn})</div>
       <div><span>Paving start time:</span> ${inp.prodStart}</div>
+      <div><span>Last truck unloaded:</span> ${inp.lastUnload}</div>
       <div><span>Optimal trucks:</span> ${optimal ? optimal.n : '—'}</div>
       <div><span>Best $/ton (optimum):</span> ${optimal ? '$'+optimal.costPerTon.toFixed(2) : '—'}</div>
       <div><span>Max trucks stacked at plant:</span> ${inp.maxStack}</div>
